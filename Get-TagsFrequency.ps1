@@ -1,23 +1,31 @@
 ﻿[CmdletBinding()]
-Param
-(
-  [ValidateScript({Test-Path $_ -PathType 'Container'})]
-  [string] $Path = "X:\pictures\rule34\"
-)
+Param()
 
+Import-Module "$PSScriptRoot\Modules\Config-Helpers.psm1"
 Import-Module "$PSScriptRoot\Modules\Tag-Helpers.psm1"
 
-$tagsArtist = Read-TagsFile "$PSScriptRoot\tags_artist.txt"
-$tagsCharacter = Read-TagsFile "$PSScriptRoot\tags_character.txt"
-$tagsExclude = Read-TagsFile "$PSScriptRoot\tags_exclude.txt"
+$config = Read-Config -RequiredParams @("Path", "TagFilePaths")
 
-$exclude = $tagsExclude + $tagsArtist + $tagsCharacter
+if (-not (Test-Path $config.Path -PathType 'Container')) {
+  Write-Error "$($config.Path) doesn't exist"
+  Exit
+}
+
+# tags to exclude
+$exclude = @()
+$tagFilePaths = $config.TagFilePaths.Split("|")
+
+foreach ($tagFile in $tagFilePaths) {
+  $tagFile = $tagFile.Trim()
+  if (Test-Path $tagFile -PathType Leaf) {
+    $exclude = $exclude + (Read-TagsFile $tagFile)
+  }
+}
 
 # Tags count hash table
 $tagsHash = @{}
-
 # Get filenames
-$fileNames = Get-ChildItem $path -Name -File #-Recurse
+$fileNames = Get-ChildItem $config.Path -Name -File #-Recurse
 
 foreach ($fileName in $fileNames) {
   $tags = Get-TagsFromFileName -FileName $fileName

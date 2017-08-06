@@ -1,39 +1,37 @@
 ﻿[CmdletBinding()]
-Param (
-  [int] $StartPage = 1,
-  
-  [ValidateScript({Test-Path $_ -PathType Container})]
-  [string] $DestinationRoot = "C:\Download\rule34"
-)
+Param()
 
+Import-Module "$PSScriptRoot\Modules\Config-Helpers.psm1"
 Import-Module "$PSScriptRoot\Modules\Get-Destination.psm1"
 Import-Module "$PSScriptRoot\Modules\Tag-Helpers.psm1"
 Import-Module "$PSScriptRoot\Modules\Categorize.psm1"
 Import-Module "$PSScriptRoot\Modules\Invoke-WithRetry.psm1"
 
+$config = Read-Config -RequiredParams @("StartPage","DestinationRoot","StopId","TrashTagsFile","ShutdownPC")
+
 $pageUrlTemplate = "http://rule34.paheal.net/post/list/{0}"
 $imageOnlyLinkText = "Image Only"
 
 function Get-Feed {
-  [CmdletBinding()]
   Param (
     [Parameter(Mandatory)]
     [int] $StartPage,
     
     [Parameter(Mandatory)]
-    [string] $DestinationRoot
+    [ValidateScript({Test-Path $_ -PathType Container})]
+    [string] $DestinationRoot,
+
+    [Parameter(Mandatory)]
+    [int] $StopId,
+
+    [ValidateScript({Test-Path $_ -PathType Leaf})]
+    [string] $TrashTagsFile
   )
 
-  $stopIdFileName = "$($MyInvocation.ScriptName.Split(".")[0]).stopId.txt"
   # Subfolder with current date as name
   $destination = Get-Destination -Name (Get-Date -Format yyyy-MM-dd) -ParentFolder $DestinationRoot
   $errorsFile = Join-Path $destination "errors.csv"
   $imagesFile = Join-Path $destination "media.csv"
-
-  # Check if stop id file exists and get stop id from it
-  if ((-not $PSBoundParameters.ContainsKey('StopId')) -and (Test-Path $stopIdFileName -PathType Leaf)) {
-    $StopId = Get-Content -LiteralPath $stopIdFileName -Tail 1
-  }
 
   $loadMore = $true
   $pageNumber = $StartPage
@@ -86,14 +84,13 @@ function Get-Feed {
 
   $webClient.Dispose()
 
-  # Remember new stop id
-  Add-Content -LiteralPath $stopIdFileName -Value ([Environment]::NewLine + $images[0].Id)
+  Move-TrashImages $destination $TrashTagsFile
 
-  Move-TrashImages $destination
+  # Return new StopId
+  return $images[0].Id
 }
 
 function Get-PageImageUrls {
-  [CmdletBinding()]
   Param (
     [Parameter(Mandatory)]
     [int] $PageNumber
@@ -107,7 +104,6 @@ function Get-PageImageUrls {
 }
 
 function Save-Image {
-  [CmdletBinding()]
   Param (
     [Parameter(Mandatory)]
     [System.Net.WebClient] $webClient,
@@ -136,13 +132,16 @@ function Save-Image {
 function Move-TrashImages {
   Param (
     [ValidateScript( {Test-Path $_ -PathType Container})]
-    [string] $SrcPath
+    [string] $SrcPath,
+
+    [Parameter(Mandatory)]
+    [string] $TrashTagsFile
   )
 
   Write-Host "Moving trash images"
 
   $destPath = Get-Destination "trash" -ParentFolder $SrcPath
-  $tags = Read-TagsFile "$PSScriptRoot\tags_trash.txt"
+  $tags = Read-TagsFile $TrashTagsFile
 
   Categorize -Path $SrcPath -Tags $tags -Destination $destPath
 }
@@ -159,6 +158,12 @@ function Move-TrashImageBatch {
   }
 }
 
-Get-Feed $StartPage $DestinationRoot
+$config.StopId = Get-Feed @config
+Write-Config -ConfigHash $config
+
+if ([boolean]::Parse($config.ShutdownPC)) {
+  Stop-Computer
+}
+
 #Move-TrashImageBatch "C:\Download\rule34\"
 #Move-TrashImages "C:\Download\rule34\2017-07-25\trash"

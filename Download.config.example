@@ -1,0 +1,5 @@
+StartPage=1
+DestinationRoot=C:\Download\rule34
+StopId=2265667
+TrashTagsFile=.\tags_trash.txt
+ShutdownPC=false
