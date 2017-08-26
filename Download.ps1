@@ -41,7 +41,7 @@ function Get-Feed {
 
   if (Test-Path $imagesFile -PathType Leaf) {
     Write-Host "  Loading from $imagesFile"
-    $images = Import-Csv -Path $imagesFile -Delimiter ";"
+    $images = Import-ImagesFile $imagesFile
   }
   else {
     do {
@@ -67,7 +67,7 @@ function Get-Feed {
     } while ($loadMore)
 
     # Save images data
-    $images | Export-Csv -Path $imagesFile -NoTypeInformation -Delimiter ";"
+    Export-ImagesFile $imagesFile $images
   }
 
   $imageCount = $images.Count;
@@ -103,6 +103,29 @@ function Get-PageImageUrls {
   return $pageWebResponse | Select-Object -ExpandProperty Links | Where-Object innerText -eq $imageOnlyLinkText | Select-Object -ExpandProperty href
 }
 
+function Import-ImagesFile {
+  Param (
+    [Parameter(Mandatory)]
+    $ImagesFile
+  )
+
+  Import-Csv -Path $ImagesFile -Delimiter ";"
+}
+
+function Export-ImagesFile {
+  Param (
+    [Parameter(Mandatory)]
+    $ImagesFile,
+
+    [Parameter(Mandatory)]
+    $Images,
+
+    [switch] $Append
+  )
+
+  $Images | Export-Csv -Path $ImagesFile -NoTypeInformation -Delimiter ";"  -Encoding UTF8 -Append:$Append
+}
+
 function Save-Image {
   Param (
     [Parameter(Mandatory)]
@@ -125,13 +148,13 @@ function Save-Image {
   }
   catch {
     $Image | Add-Member –MemberType NoteProperty –Name Error –Value $_.Exception.Message
-    $Image | Export-Csv -Path $ErrorsFile -Append  -NoTypeInformation -Delimiter ";"  -Encoding UTF8
+    Export-ImagesFile $ErrorsFile $Image -Append
   }
 }
 
 function Move-TrashImages {
   Param (
-    [ValidateScript( {Test-Path $_ -PathType Container})]
+    [ValidateScript({Test-Path $_ -PathType Container})]
     [string] $SrcPath,
 
     [Parameter(Mandatory)]
@@ -148,22 +171,57 @@ function Move-TrashImages {
 
 function Move-TrashImageBatch {
   Param (
-    [ValidateScript( {Test-Path $_ -PathType Container})]
+    [ValidateScript({Test-Path $_ -PathType Container})]
     [string] $PathRoot
   )
 
   $folders = Get-ChildItem -Path $PathRoot -Directory -Exclude "ready"
   foreach ($folder in $folders) { 
-    Move-TrashImages $folder
+    Move-TrashImages $folder $config.TrashTagsFile
   }
 }
 
-$config.StopId = Get-Feed @config
+function Get-MissingFiles {
+   Param (
+    [ValidateScript({Test-Path $_ -PathType Container})]
+    [string] $Path
+  )
+
+  $images = Import-ImagesFile (Join-Path $Path "media.csv")
+  $missingImages = [System.Collections.ArrayList]@()
+
+  $imageCount = $images.Count;
+  for ($imageIndex = 0; $imageIndex -lt $imageCount; $imageIndex++) {
+    $imageNumber = $imageIndex + 1
+    [int]$percentProcessed = ($imageNumber / $imageCount) * 100
+    Write-Progress -Activity "Validating ($imageNumber/$imageCount)" -Status "$percentProcessed%" -PercentComplete ($percentProcessed)
+    
+    try {
+      $file = Get-ChildItem -Path $Path -Filter "$($images[$imageIndex].FileName)*" -Recurse
+    }
+    catch {
+      Write-Host $images[$imageIndex] -ForegroundColor Green
+      Write-Host $_.Exception.Message -ForegroundColor Red
+    }
+
+    if($file -eq $null) {
+      $missingImages.Add($images[$imageIndex]) | Out-Null
+    }
+  }
+
+  Export-ImagesFile (Join-Path $Path "missing.csv") $missingImages
+
+  Read-Host -Prompt "Press Enter to exit"
+}
+
+#Get-MissingFiles "C:\rule34\2017-08-22"
+
+$config.StopId = Get-Feed $config.StartPage $config.DestinationRoot $config.StopId $config.TrashTagsFile
 Write-Config -ConfigHash $config
 
 if ([boolean]::Parse($config.ShutdownPC)) {
   Stop-Computer
 }
 
-#Move-TrashImageBatch "C:\Download\rule34\"
-#Move-TrashImages "C:\Download\rule34\2017-07-25\trash"
+#Move-TrashImageBatch "C:\rule34\"
+#Move-TrashImages "C:\rule34\2017-07-20"
