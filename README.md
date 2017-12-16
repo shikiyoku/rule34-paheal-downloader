@@ -1,3 +1,7 @@
+ABANDONED
+
+Just use [Grabber](https://github.com/Bionus/imgbrd-grabber)
+
 # rule34-paheal Downloader
 Set of powershell scripts for downloading and categorizing images from http://rule34.paheal.net
 
